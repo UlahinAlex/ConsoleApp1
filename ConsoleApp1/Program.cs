@@ -1,5 +1,4 @@
 ﻿using System;
-using System.ComponentModel.Design;
 using System.Threading;
 
 //Класс персонажей
@@ -22,13 +21,28 @@ public class Character
     public int Experience = 0; //Счетчик опыта
     private static int[] levelThresholds = { 0, 10, 20, 30, 50, 80, 130, 210, 340, 550 }; // Пороги опыта по Фибоначчи * 10
     public bool IsElite = false; //Усиленный враг
+    public int HealTurns = 0; //Переодическое лечение
+    public int HealAmount = 0; //На сколько лечит
+
+    //действия
+    public Action<int> OnDamageTaken;
+    public Action OnDeath;
+    public Action OnMiss;
+    public Action OnCrit;
+    public Action OnBowVsSkeleton;
+    public Action<int> OnExpGained;
+    public Action<int, int, int> OnLevelUp; // уровень, новое HP, новый урон макс
+    public Action<int> OnHeal;
+    public Action<int> OnPoisonDamage;
+    public Action<int> OnHealBase;
+    public Action OnWeaponEquipError;
+
 
 
     public void GainExperience(int amount)
     {
         Experience += amount;
-        Console.WriteLine($"{Name} получает {amount} опыта. Всего: {Experience}");
-        Thread.Sleep(1000);
+        OnExpGained?.Invoke(amount);
         CheckLevelUp();
     }
 
@@ -42,10 +56,7 @@ public class Character
             MaxHP += 20;
             MinDamage = (int)(MinDamage * 1.1f);
             MaxDamage = (int)(MaxDamage * 1.1f);
-            Console.WriteLine($"Уровень повышен! Теперь {Name} {Level} уровня.");
-            Console.WriteLine($"HP: {MaxHP} | Урон: {MinDamage}-{MaxDamage}");
-            Thread.Sleep(1000);
-
+            OnLevelUp?.Invoke(Level, MaxHP, MaxDamage);
             CheckLevelUp(); // Проверяем снова — вдруг опыта хватает на несколько уровней сразу
         }
     }
@@ -60,8 +71,14 @@ public class Character
             int poisonDamage = random.Next(1, 4);
             CurrentHP -= poisonDamage;
             PoisonTurns--;
-            Console.WriteLine($"{Name} получает {poisonDamage} урона от яда. Осталось здоровья: {CurrentHP}. Ходов отравления: {PoisonTurns}");
-            Thread.Sleep(1000);
+            OnPoisonDamage?.Invoke(poisonDamage);
+        }
+
+        if (HealTurns > 0)
+        {
+            CurrentHP = Math.Min(CurrentHP + HealAmount, MaxHP);
+            HealTurns--;
+            OnHeal?.Invoke(HealAmount);
         }
     }
 
@@ -69,33 +86,31 @@ public class Character
     private static Random random = new Random();
 
     //Метод проверки эффектов атаки
-    public int GetDamage(bool vsSkeletion = false)
+    public int GetDamage(bool vsSkeleton = false)
     {
 
         //Шанс промахнутся
         if (random.Next(1, 101) <= MissChance)
         {
-            Console.WriteLine($"{Name} промахивается!");
-            Thread.Sleep(1000);
+            OnMiss?.Invoke();
             return 0;
         }
+
         int damage = random.Next(MinDamage, MaxDamage + 1);
 
         //Шанс нанести крит
         if (random.Next(1,101) <= CritChance)
         {
-            float critMult = EquippedWeapon != null ? EquippedWeapon.CritMultiplierl : 1.5f;
+            float critMult = EquippedWeapon != null ? EquippedWeapon.CritMultiplier : 1.5f;
             damage = (int)(damage * critMult);
-            Console.WriteLine($"{Name} наносит критический удар!");
-            Thread.Sleep(1000);
+            OnCrit?.Invoke();
         }
 
         //Снижение урона луком по скелету
-        if (vsSkeletion && EquippedWeapon != null && EquippedWeapon.IsBow)
+        if (vsSkeleton && EquippedWeapon != null && EquippedWeapon.IsBow)
         {
             damage = (int)(damage * 0.2f);
-            Console.WriteLine($"Стрелы плохо пробивают кости! Урон снижен.");
-            Thread.Sleep(1000);
+            OnBowVsSkeleton?.Invoke();
         }
 
         return damage;        
@@ -116,28 +131,27 @@ public class Character
     //Метод получения урона персонажем
     public void TakeDamage(int damage)
     {
+        if (damage <= 0) return; // игнорируем нулевой урон
+
         CurrentHP -= damage;
 
         if (CurrentHP <= 0)
         {
             CurrentHP = 0;
-            Console.WriteLine($"{Name} погиб!");
-            Thread.Sleep(1000);
+            OnDeath?.Invoke();
         }
         else
         {
-            Console.WriteLine($"{Name} получил {damage} урона. Осталось здоровья: {CurrentHP}.");
-            Thread.Sleep(1000);
+            OnDamageTaken?.Invoke(damage);
         }
     }
 
     //Метод лечения
-    public void Heal()
+    public void HealBase()
     {
         int missing = MaxHP - CurrentHP;
         CurrentHP += missing / 2;
-        Console.WriteLine($"{Name} восстановил здоровье. HP: {CurrentHP}/{MaxHP}");
-        Thread.Sleep(1000);
+        OnHealBase?.Invoke(CurrentHP);
     }
 
     //Метод экипировки оружия
@@ -145,13 +159,13 @@ public class Character
     {
         if (weapon == null)
         {
-            Console.WriteLine("Ошибка: оружие не выбрано!");
+            OnWeaponEquipError?.Invoke();
             return;
         }
         EquippedWeapon = weapon;
         MinDamage = weapon.MinDamage;
         MaxDamage = weapon.MaxDamage;
-        MissChance = weapon.DodgeModifier;
+        MissChance -= weapon.DodgeModifier;
     }
 
     //Проверка живой ли персонаж
@@ -167,18 +181,18 @@ public class Weapon
     public string Name;
     public int MinDamage;
     public int MaxDamage;
-    public float CritMultiplierl;
+    public float CritMultiplier;
     public int DodgeModifier;
     public int DoubleAttackChance;
     public int BlockChance;
     public bool IsBow;
 
-    public Weapon(string name, int minDamage, int maxDamage, float critMultiplierl, int dodgeModifier, int doubleAttackChance, int blockChance, bool isBow)
+    public Weapon(string name, int minDamage, int maxDamage, float critMultiplier, int dodgeModifier, int doubleAttackChance, int blockChance, bool isBow)
     {
         Name = name;
         MinDamage = minDamage;
         MaxDamage = maxDamage;
-        CritMultiplierl = critMultiplierl;
+        CritMultiplier = critMultiplier;
         DodgeModifier = dodgeModifier;
         DoubleAttackChance = doubleAttackChance;
         BlockChance = blockChance;
@@ -189,20 +203,31 @@ public class Weapon
 //Основной класс выполнения циклов игшры
 class Program
 {
+    //Типовые сообщения
+    static void Print(string message, int delay = 1000)
+    {
+        Console.WriteLine(message);
+        Thread.Sleep(delay);
+    }
     //Отдельно выбираем противника
     static Character CreateRandomEnemy(Random random, int heroLevel)
     {
         // Определяем тип врага
         int roll = random.Next(1, 4);
         Character enemy;
-        int expReward;
 
-        if (roll == 1)
-            enemy = new Character("Гоблин", 30, 3, 8, 15, 10, 30);
-        else if (roll == 2)
-            enemy = new Character("Паук", 20, 1, 5, 5, 25, 20);
-        else
-            enemy = new Character("Скелет", 50, 1, 10, 20, 15, 50);
+        switch (roll)
+        {
+            case 1:
+                enemy = new Character("Гоблин", 30, 3, 8, 15, 10, 30);
+                break;
+            case 2:
+                enemy = new Character("Паук", 20, 1, 5, 5, 25, 20);
+                break;
+            default:
+                enemy = new Character("Скелет", 50, 1, 10, 20, 15, 50);
+                break;
+        }
 
         // Проверяем элитность
         if (random.Next(1, 101) <= heroLevel * 10)
@@ -215,6 +240,29 @@ class Program
             enemy.CritChance *= 2;
             enemy.MissChance = Math.Max(enemy.MissChance / 2, 1); // элита реже промахивается
         }
+
+        string eliteTag = enemy.IsElite ? " [ЭЛИТА]" : ""; //Пердупреждаем об элите
+        Print($"Навстречу тебе выходит {enemy.Name}{eliteTag} [HP: {enemy.MaxHP}]!");
+
+        enemy.OnDamageTaken += (damage) =>
+        {
+            Print($"{enemy.Name} получил {damage} урона. Осталось здоровья: {enemy.CurrentHP}");
+        };
+
+        enemy.OnDeath += () =>
+        {
+            Print($"{enemy.Name} погиб!");
+        };
+
+        enemy.OnMiss += () =>
+        {
+            Print($"{enemy.Name} промахивается!");
+        };
+
+        enemy.OnCrit += () =>
+        {
+            Print($"{enemy.Name} наносит критический удар!");
+        };
 
         return enemy;
     }
@@ -231,12 +279,225 @@ class Program
         while (chosen == null)
         {
             string input = Console.ReadLine();
-            if (input == "1") chosen = axe;
-            else if (input == "2") chosen = swordAndShield;
-            else if (input == "3") chosen = bow;
-            else Console.WriteLine("Введи 1, 2 или 3!");
+            switch (input)
+            {
+                case "1":
+                    chosen = axe;
+                    break;
+                case "2":
+                    chosen = swordAndShield;
+                    break;
+                case "3":
+                    chosen = bow;
+                    break;
+                default:
+                    Console.WriteLine("Введи 1, 2 или 3!");
+                    break;
+            }
         }
         return chosen;
+    }
+
+    static void HandleBase(Character hero, Weapon axe, Weapon swordAndShield, Weapon bow)
+    {
+        Console.WriteLine("\n=== БАЗА ===");
+        hero.HealBase();
+
+        Weapon chosen = ChooseWeapon(axe, swordAndShield, bow);
+        hero.EquipWeapon(chosen);
+        Print($"Ты выбрал: {chosen.Name}!");
+
+        while (true)
+        {
+            Console.WriteLine("\nВведи команду (В путь / Выход):");
+            string cmd = Console.ReadLine().ToLower().Trim();
+            if (cmd == "в путь") break;
+            else if (cmd == "выход")
+            {
+                Console.WriteLine("До свидания!");
+                Environment.Exit(0);
+            }
+            else Console.WriteLine("Не могу этого сделать!");
+        }
+    }
+
+    static void HandleBattle(Character hero, Character enemy, Random random)
+    {
+        //определяем если скелета
+        bool vsSkeleton = enemy.Name == "Скелет";
+
+        //Срабатывает эффект
+        hero.ApplyEffects();
+
+        //Если тут герой погибает, то от яда.
+        if (!hero.isAlive())
+        {
+            Print($"{hero.Name} погиб от яда!");
+        }
+
+        //Проверка на оглушение героя
+        if (hero.InStunned)
+        {
+            Print($"{hero.Name} оглушен и пропускает атаку!");
+            hero.InStunned = false;
+        }
+        else //Иначе продолжаем бой
+        {
+            string action = "";
+
+            //выбор действия в бою
+            while (true)
+            {
+                Console.WriteLine("\nВведи команду (атака / блок / уворот):");
+                action = Console.ReadLine().ToLower().Trim();
+                if (action == "атака" || action == "блок" || action == "уворот") break;
+                else Console.WriteLine("Не могу этого сделать!");
+            }
+
+            //отработка действия
+            switch (action)
+            {
+                case "атака":
+
+                    enemy.TakeDamage(hero.GetDamage(vsSkeleton));
+
+                    if (!enemy.isAlive()) return; //Не блъем мертвых
+
+                    if (hero.EquippedWeapon != null && hero.EquippedWeapon.DoubleAttackChance > 0)
+                    {
+                        if (random.Next(1, 101) <= hero.EquippedWeapon.DoubleAttackChance)
+                        {
+                            Print("Двойная атака!");
+                            enemy.TakeDamage(hero.GetDamage(vsSkeleton));
+                            if (!enemy.isAlive()) return;
+                        }
+                    }
+                    break;
+                case "блок":
+                    int newBlockChance = (hero.EquippedWeapon?.BlockChance ?? 0) + hero.BonusBlockChance + 50;
+                    hero.BonusBlockChance = Math.Min(newBlockChance, 99) - (hero.EquippedWeapon?.BlockChance ?? 0);
+                    Print($"{hero.Name} принимает защитную стойку!");
+                    break;
+                case "уворот":
+                    hero.BonusDodgeChance = Math.Min(hero.BonusDodgeChance + 50, 99);
+                    Print($"{hero.Name} готовится к уворту!");
+                    break;
+                default:
+                    Console.WriteLine("Не могу этого сделать!");
+                    break;
+            }
+        }
+
+        // Атака врага
+        int damage = enemy.GetDamage();
+
+        int totalDodge = hero.MissChance + hero.BonusDodgeChance;
+        if (hero.BonusDodgeChance > 0 && random.Next(1, 101) <= totalDodge)
+        {
+            Print($"{hero.Name} уворачивается от атаки!");
+            hero.BonusDodgeChance = 0;
+            hero.BonusBlockChance = 0;
+            return;
+        }
+        hero.BonusDodgeChance = 0;
+
+        int totalBlock = (hero.EquippedWeapon?.BlockChance ?? 0) + hero.BonusBlockChance;
+        if (totalBlock > 0 && random.Next(1, 101) <= totalBlock)
+        {
+            Print($"{hero.Name} блокирует атаку!");
+            hero.BonusBlockChance = 0;
+            if (enemy.Name == "Скелет")
+            {
+                enemy.MinDamage++;
+                enemy.MaxDamage++;
+                Print($"Скелет становится сильнее! Урон: {enemy.MinDamage}-{enemy.MaxDamage}");
+            }
+            return;
+        }
+        hero.BonusBlockChance = 0;
+
+        hero.TakeDamage(damage);
+        
+        if (damage > 0)
+        {
+            switch (enemy.Name)
+            {
+                case "Паук":
+                    hero.PoisonTurns = 5;
+                    Print($"{hero.Name} отравлен!");
+                    break;
+                case "Гоблин":
+                    if (random.Next(1, 101) <= 30)
+                    {
+                        hero.InStunned = true;
+                        Print($"{enemy.Name} оглушил {hero.Name}!");
+                    }
+                    break;
+                case "Скелет":
+                    enemy.MinDamage++;
+                    enemy.MaxDamage++;
+                    Print($"Скелет становится сильнее! Урон: {enemy.MinDamage}-{enemy.MaxDamage}");
+                    break;
+            }
+        }
+    }
+
+    static bool HandleVictory (Character hero, Character enemy, List<Character> enemies, Random random)
+    {
+        Console.WriteLine($"\n> Я победил {enemy.Name}!");
+        Print($"{hero.Name} : {hero.CurrentHP}/{hero.MaxHP} здоровья.");
+
+        enemies.Remove(enemy);
+
+        // Расчитываем за победу
+        int expReward = 0;
+        switch (enemy.Name)
+        {
+            case "Гоблин":
+                expReward = 5;
+                break;
+            case "Паук":
+                expReward = 4;
+                break;
+            case "Скелет":
+                expReward = 8;
+                break;
+            default:
+                expReward = 0;
+                break;
+        }
+
+        //Удваиваем опыт за элиту
+        if (enemy.IsElite) expReward *= 2;
+        //Выдаем опыт
+        hero.GainExperience(expReward);
+
+        // Выбор после победы
+        while (true)
+        {
+            Console.WriteLine("\nВведи команду (На базу / Вперед):");
+            string cmd = Console.ReadLine().ToLower().Trim();
+
+            switch (cmd)
+            {
+                case "на базу":
+                    
+                    enemies.Clear(); // очищаем врагов — новые появятся после базы
+                    return false;
+                case "вперед":
+                    //Встречаем следующего врага
+                    enemies.Add(CreateRandomEnemy(random, hero.Level));
+                    return true;
+                default:
+                    Console.WriteLine("Не могу этого сделать!");
+                    break;
+            }
+        }
+    }
+
+    static void HandleDeath(Character hero)
+    {
+        Console.WriteLine($"\n{hero.Name} погиб. Игра окончена.");
     }
 
     //MAIN!!!
@@ -249,10 +510,6 @@ class Program
 
         //Объявляем имеющиеся типы врагов
         List<Character> enemies = new List<Character>();
-        Character goblin = null;
-        Character spider = null;
-        Character skeleton = null;
-
 
         //Обявляем рандом
         Random random = new Random();
@@ -262,10 +519,67 @@ class Program
 
         //Создаем персонажа
         Console.WriteLine("Как тебя зовут?");
-        string name = "alex";
-        name = Console.ReadLine();
+        string name = Console.ReadLine();
         Character myHero = new Character(name, 100, 10, 15, 30, 5, 100); //Имя, текущее ХП, мин. урон, макс. урон, промах, крит, макс. ХП
         Console.WriteLine($">Меня зовут {myHero.Name}, у меня {myHero.CurrentHP} здоровья.");
+
+        //Блок с экшенами героя
+        myHero.OnDamageTaken += (damage) =>
+        {
+            Print($"{myHero.Name} получил {damage} урона. Осталось здоровья: {myHero.CurrentHP}");
+        };
+
+        myHero.OnDeath += () =>
+        {
+            Print($"{myHero.Name} погиб!");
+        };
+
+        myHero.OnMiss += () =>
+        {
+            Print($"{myHero.Name} промахивается!");
+        };
+
+        myHero.OnCrit += () =>
+        {
+            Print($"{myHero.Name} наносит критический удар!");
+        };
+
+        myHero.OnBowVsSkeleton += () =>
+        {
+            Print("Стрелы плохо пробивают кости! Урон снижен.");
+        };
+        myHero.OnWeaponEquipError += () =>
+        {
+            Print("Ошибка: оружие не выбрано!");
+        };
+
+        //Блок с повышением уровня
+        myHero.OnExpGained += (amount) =>
+        {
+            Print($"{myHero.Name} получает {amount} опыта. Всего: {myHero.Experience}");
+        };
+
+        myHero.OnLevelUp += (level, hp, maxDamage) =>
+        {
+            Console.WriteLine($"Уровень повышен! Теперь {myHero.Name} {level} уровня.");
+            Print($"HP: {hp} | Урон: {myHero.MinDamage}-{maxDamage}");
+        };
+
+        //Блок эффектов
+        myHero.OnPoisonDamage += (damage) =>
+        {
+            Print($"{myHero.Name} получает {damage} урона от яда. Осталось здоровья: {myHero.CurrentHP}. Ходов яда: {myHero.PoisonTurns}");
+        };
+
+        myHero.OnHeal += (amount) =>
+        {
+            Print($"{myHero.Name} восстанавливает {amount} здоровья. Осталось здоровья: {myHero.CurrentHP}");
+        };
+
+        myHero.OnHealBase += (current) =>
+        {
+            Print($"{myHero.Name} восстановил здоровье. HP: {current}/{myHero.MaxHP}");
+        };
 
         //Заходим на базу
         bool onBase = true;
@@ -275,37 +589,13 @@ class Program
             // База
             if (onBase)
             {
-                Console.WriteLine("\n=== БАЗА ===");
-                myHero.Heal();
+                //Действия на базе
+                HandleBase(myHero, axe, swordAndShield, bow);
 
-                Weapon chosen = ChooseWeapon(axe, swordAndShield, bow);
-                myHero.EquipWeapon(chosen);
-                Console.WriteLine($"Ты выбрал: {chosen.Name}!");
-                Thread.Sleep(1000);
-
-                while (true)
-                {
-                    Console.WriteLine("\nВведи команду (В путь / Выход):");
-                    string cmd = Console.ReadLine().ToLower().Trim();
-                    if (cmd == "в путь") break;
-                    else if (cmd == "выход")
-                    {
-                        Console.WriteLine("До свидания!");
-                        return;
-                    }
-                    else Console.WriteLine("Не могу этого сделать!");
-                }
-
-                onBase = false;
+                onBase = false; //Вышли с базы
 
                 // Создаём первого врага при выходе с базы
                 enemies.Add(CreateRandomEnemy(random, myHero.Level));
-                Character newEnemy = enemies[enemies.Count - 1];
-
-                string eliteTag = newEnemy.IsElite ? " [ЭЛИТА]" : ""; //Пердупреждаем об элите
-                Console.WriteLine($"Навстречу тебе выходит {newEnemy.Name}{eliteTag} [HP: {newEnemy.MaxHP}]!");
-                Thread.Sleep(1000);
-
                 continue; // возвращаемся в начало главного цикла
             }
 
@@ -314,415 +604,22 @@ class Program
             {
                 //Локализуем противника
                 Character enemy = enemies[0];
-                Console.WriteLine($"[DEBUG] Сражаемся с: {enemy.Name}, HP: {enemy.CurrentHP}/{enemy.MaxHP}, Элита: {enemy.IsElite}");
-                //определяем если скелета
-                bool vsSkeleton = enemy == skeleton;
 
-                //Срабатывает эффект
-                myHero.ApplyEffects();
-
-                //Если тут герой погибает, то от яда.
-                if (!myHero.isAlive())
-                {
-                    Console.WriteLine($"{myHero.Name} погиб от яда!");
-                    Thread.Sleep(1000);
-                    break;
-                }
-
-                //Проверка на оглушение героя
-                if (myHero.InStunned)
-                {
-                    Console.WriteLine($"{myHero.Name} оглушен и пропускает атаку!");
-                    Thread.Sleep(1000);
-                    myHero.InStunned = false;
-                }
-                else //Иначе продолжаем бой
-                {
-                    string action = "";
-                    while (true)
-                    {
-                        Console.WriteLine("\nВведи команду (атака / блок / уворот):");
-                        action = Console.ReadLine().ToLower().Trim();
-                        if (action == "атака" || action == "блок" || action == "уворот") break;
-                        else Console.WriteLine("Не могу этого сделать!");
-                    }
-
-                    if (action == "атака")
-                    {
-                        enemy.TakeDamage(myHero.GetDamage(vsSkeleton));
-
-                        if (myHero.EquippedWeapon != null && myHero.EquippedWeapon.DoubleAttackChance > 0)
-                        {
-                            if (random.Next(1, 101) <= myHero.EquippedWeapon.DoubleAttackChance)
-                            {
-                                Console.WriteLine("Двойная атака!");
-                                Thread.Sleep(1000);
-                                enemy.TakeDamage(myHero.GetDamage(vsSkeleton));
-                            }
-                        }
-                    }
-                    else if (action == "блок")
-                    {
-                        int newBlockChance = (myHero.EquippedWeapon?.BlockChance ?? 0) + myHero.BonusBlockChance + 50;
-                        myHero.BonusBlockChance = Math.Min(newBlockChance, 99) - (myHero.EquippedWeapon?.BlockChance ?? 0);
-                        Console.WriteLine($"{myHero.Name} принимает защитную стойку!");
-                        Thread.Sleep(1000);
-                    }
-                    else if (action == "уворот")
-                    {
-                        myHero.BonusDodgeChance = Math.Min(myHero.BonusDodgeChance + 50, 99);
-                        Console.WriteLine($"{myHero.Name} готовится к уворту!");
-                        Thread.Sleep(1000);
-                    }
-                }
+                //Запускаем бой
+                HandleBattle(myHero, enemy, random);
 
                 if (!enemy.isAlive())
                 {
-                    Console.WriteLine($"\n> Я победил {enemy.Name}!");
-                    Console.WriteLine($"{myHero.Name} : {myHero.CurrentHP}/{myHero.MaxHP} здоровья.");
-                    Thread.Sleep(1000);
-
-                    enemies.Remove(enemy);
-
-                    // Опыт за победу
-                    int expReward = 0;
-                    if (enemy.Name == "Гоблин") expReward = 5;
-                    else if (enemy.Name == "Паук") expReward = 4;
-                    else if (enemy.Name == "Скелет") expReward = 8;
-
-                    if (enemy.IsElite) expReward *= 2;
-                    myHero.GainExperience(expReward);
-
-                    
-
-                    // Выбор после победы
-                    while (true)
-                    {
-                        Console.WriteLine("\nВведи команду (На базу / Вперед):");
-                        string cmd = Console.ReadLine().ToLower().Trim();
-
-                        if (cmd == "на базу")
-                        {
-                            onBase = true;
-                            enemies.Clear(); // очищаем врагов — новые появятся после базы
-                            break;
-                        }
-                        else if (cmd == "вперед")
-                        {
-                            //Встречаем следующего врага
-                            enemies.Add(CreateRandomEnemy(random, myHero.Level));
-                            Character newEnemy = enemies[enemies.Count - 1];
-
-                            //int roll = random.Next(1, 4);
-                            //if (roll == 1) enemies.Add(new Character("Гоблин", 30, 3, 8, 15, 10, 30));
-                            //else if (roll == 2) enemies.Add(new Character("Паук", 20, 1, 5, 5, 25, 20));
-                            //else enemies.Add(new Character("Скелет", 50, 1, 10, 20, 15, 50));
-
-                            //goblin = enemies.Find(e => e.Name == "Гоблин");
-                            //spider = enemies.Find(e => e.Name == "Паук");
-                            //skeleton = enemies.Find(e => e.Name == "Скелет");
-
-                            string eliteTag = newEnemy.IsElite ? " [ЭЛИТА]" : ""; //Пердупреждаем об элите
-                            Console.WriteLine($"Навстречу тебе выходит {newEnemy.Name}{eliteTag} [HP: {newEnemy.MaxHP}]!");
-                            Thread.Sleep(1000);
-                            break;
-                        }
-                        else Console.WriteLine("Не могу этого сделать!");
-                    }
-                    continue;
+                    bool goForward = HandleVictory(myHero, enemy, enemies, random);
+                    if (!goForward) onBase = true;
                 }
-
-                // Атака врага
-                int damage = enemy.GetDamage();
-
-                int totalDodge = myHero.MissChance + myHero.BonusDodgeChance;
-                if (myHero.BonusDodgeChance > 0 && random.Next(1, 101) <= totalDodge)
-                {
-                    Console.WriteLine($"{myHero.Name} уворачивается от атаки!");
-                    Thread.Sleep(1000);
-                    myHero.BonusDodgeChance = 0;
-                    myHero.BonusBlockChance = 0;
-                    continue;
-                }
-                myHero.BonusDodgeChance = 0;
-
-                int totalBlock = (myHero.EquippedWeapon?.BlockChance ?? 0) + myHero.BonusBlockChance;
-                if (totalBlock > 0 && random.Next(1, 101) <= totalBlock)
-                {
-                    Console.WriteLine($"{myHero.Name} блокирует атаку!");
-                    Thread.Sleep(1000);
-                    myHero.BonusBlockChance = 0;
-                    if (enemy == skeleton)
-                    {
-                        skeleton.MinDamage++;
-                        skeleton.MaxDamage++;
-                        Console.WriteLine($"Скелет становится сильнее! Урон: {skeleton.MinDamage}-{skeleton.MaxDamage}");
-                        Thread.Sleep(1000);
-                    }
-                    continue;
-                }
-                myHero.BonusBlockChance = 0;
-
-                myHero.TakeDamage(damage);
-
-                if (enemy == spider)
-                {
-                    myHero.PoisonTurns = 5;
-                    Console.WriteLine($"{myHero.Name} отравлен!");
-                    Thread.Sleep(1000);
-                }
-                else if (enemy == goblin)
-                {
-                    if (random.Next(1, 101) <= 30)
-                    {
-                        myHero.InStunned = true;
-                        Console.WriteLine($"{enemy.Name} оглушил {myHero.Name}!");
-                        Thread.Sleep(1000);
-                    }
-                }
-                else if (enemy == skeleton)
-                {
-                    skeleton.MinDamage++;
-                    skeleton.MaxDamage++;
-                    Console.WriteLine($"Скелет становится сильнее! Урон: {skeleton.MinDamage}-{skeleton.MaxDamage}");
-                    Thread.Sleep(1000);
-                }
+                
             }
         }
 
         if (!myHero.isAlive())
         {
-            Console.WriteLine($"\n{myHero.Name} погиб. Игра окончена.");
+            HandleDeath(myHero);
         }
-
-        //while(myHero.isAlive())
-        //{
-        //    //Действия на базе
-        //    if (onBase)
-        //    {
-        //        //Восстанавливаем ХП на базе
-        //        Console.WriteLine("\n=== БАЗА ===");
-        //        Console.WriteLine($"Здоровье восстановлено. HP: {myHero.MaxHP}");
-        //        myHero.Heal();
-
-        //        //Выбираем и экипируем оружие
-        //        Weapon chosen = ChooseWeapon(axe, swordAndShield, bow);
-        //        myHero.EquipWeapon(chosen);
-        //        Console.WriteLine($"Ты выбрал: {chosen.Name}!");
-        //        Thread.Sleep(1000);
-
-        //        //Ждем команду "В путь"
-        //        while (true)
-        //        {
-        //            Console.WriteLine("\nВведи команду (В путь):");
-        //            string cmd = Console.ReadLine().ToLower().Trim();
-        //            if (cmd == "в путь") break;
-        //            else Console.WriteLine("Не могу этого сделать!");
-        //        }
-
-        //        //Уходим с базы
-        //        onBase = false;
-
-        //        //Выбор после каждой битвы
-        //        while (true)
-        //        {
-        //            Console.WriteLine("\nВведи команду (На базу / Вперед):");
-        //            string cmd = Console.ReadLine().ToLower().Trim();
-
-        //            if (cmd == "на базу")
-        //            {
-        //                onBase = true;
-        //                break;
-        //            }
-        //            else if (cmd == "вперед")
-        //            {
-        //                //Добавляем нового случайного врага
-        //                int roll = random.Next(1, 4);
-        //                if (roll == 1) enemies.Add(new Character("Гоблин", 30, 3, 8, 15, 10, 30)); //Имя, текущее ХП, мин. урон, макс. урон, промах, крит, макс. ХП
-        //                else if (roll == 2) enemies.Add(new Character("Паук", 20, 1, 5, 5, 25, 20)); //Имя, текущее ХП, мин. урон, макс. урон, промах, крит, макс. ХП
-        //                else enemies.Add(new Character("Скелет", 50, 1, 10, 20, 15, 50)); //Имя, текущее ХП, мин. урон, макс. урон, промах, крит, макс. ХП
-
-
-        //                //Обновляем ссылки
-        //                goblin = enemies.Find(e => e.Name == "Гоблин");
-        //                spider = enemies.Find(e => e.Name == "Паук");
-        //                skeleton = enemies.Find(e => e.Name == "Скелет");
-
-        //                Console.WriteLine($"Навстречу тебе выходит {enemies[0].Name}!");
-        //                Thread.Sleep(1000);
-
-        //                while (myHero.isAlive() && enemies[0].isAlive())
-        //                {
-        //                    myHero.ApplyEffects();
-
-        //                    bool vsSkeleton = enemies[0] == skeleton;
-
-        //                    if (!myHero.isAlive())
-        //                    {
-        //                        Console.WriteLine($"{myHero.Name} погиб от яда!");
-        //                        Thread.Sleep(1000);
-        //                        break;
-        //                    }
-
-
-        //                    string action = "";
-
-        //                    while (true)
-        //                    {
-        //                        Console.WriteLine("\nВведи команду (атака / блок / уворот):");
-        //                        action = Console.ReadLine().ToLower().Trim();
-
-        //                        if (action == "атака" || action == "блок" || action == "уворот")
-        //                            break;
-        //                        else
-        //                            Console.WriteLine("Не могу этого сделать!");
-        //                    }
-        //                    if (action == "атака")
-        //                    {
-        //                        enemies[0].TakeDamage(myHero.GetDamage(vsSkeleton));
-
-        //                        if (myHero.EquippedWeapon != null && myHero.EquippedWeapon.DoubleAttackChance > 0)
-        //                        {
-        //                            if (random.Next(1, 101) <= myHero.EquippedWeapon.DoubleAttackChance)
-        //                            {
-        //                                Console.WriteLine("Двойная атака!");
-        //                                Thread.Sleep(1000);
-        //                                enemies[0].TakeDamage(myHero.GetDamage(vsSkeleton));
-        //                            }
-        //                        }
-        //                    }
-        //                    else if (action == "блок")
-        //                    {
-        //                        int newBlockChance = (myHero.EquippedWeapon?.BlockChance ?? 0) + myHero.BonusBlockChance + 50;
-        //                        myHero.BonusBlockChance = Math.Min(newBlockChance, 99) - (myHero.EquippedWeapon?.BlockChance ?? 0);
-        //                        Console.WriteLine($"{myHero.Name} принимает защитную стойку! Шанс блока увеличен.");
-        //                        Thread.Sleep(1000);
-        //                    }
-        //                    else if (action == "уворот")
-        //                    {
-        //                        myHero.BonusDodgeChance = Math.Min(myHero.BonusDodgeChance + 50, 99);
-        //                        Console.WriteLine($"{myHero.Name} готовится к уворту! Шанс уклонения увеличен.");
-        //                        Thread.Sleep(1000);
-        //                    }
-
-        //                    if (!enemies[0].isAlive())
-        //                    {
-        //                        Console.WriteLine($"\n>Я победил {enemies[0].Name}!");
-        //                        Thread.Sleep(3000);
-        //                        enemies.Remove(enemies[0]);
-        //                        break;
-        //                    }
-
-        //                    int damage = enemies[0].GetDamage();
-
-        //                    int totalDodge = myHero.MissChance + myHero.BonusDodgeChance;
-        //                    if (myHero.BonusDodgeChance > 0 && random.Next(1, 101) <= totalDodge)
-        //                    {
-        //                        Console.WriteLine($"{myHero.Name} уворачивается от атаки!");
-        //                        Thread.Sleep(1000);
-        //                        myHero.BonusDodgeChance = 0;
-        //                        myHero.BonusBlockChance = 0;
-        //                        continue;
-        //                    }
-        //                    myHero.BonusDodgeChance = 0;
-
-        //                    int totalBlock = (myHero.EquippedWeapon?.BlockChance ?? 0) + myHero.BonusBlockChance;
-        //                    if (totalBlock > 0 && random.Next(1, 101) <= totalBlock)
-        //                    {
-        //                        Console.WriteLine($"{myHero.Name} блокирует атаку!");
-        //                        Thread.Sleep(1000);
-        //                        myHero.BonusBlockChance = 0;
-        //                        if (enemies[0] == skeleton)
-        //                        {
-        //                            skeleton.MinDamage++;
-        //                            skeleton.MaxDamage++;
-        //                            Console.WriteLine($"Скелет становится сильнее! Урон: {skeleton.MinDamage}-{skeleton.MaxDamage}");
-        //                            Thread.Sleep(1000);
-        //                        }
-        //                        continue;
-        //                    }
-        //                    myHero.BonusBlockChance = 0;
-
-        //                    if (myHero.EquippedWeapon != null && myHero.EquippedWeapon.BlockChance > 0)
-        //                    {
-        //                        if (random.Next(1, 101) <= myHero.EquippedWeapon.BlockChance)
-        //                        {
-        //                            Console.WriteLine($"{myHero.Name} блокирует атаку щитом!");
-        //                            Thread.Sleep(1000);
-
-        //                            if (enemies[0] == skeleton)
-        //                            {
-        //                                skeleton.MinDamage++;
-        //                                skeleton.MaxDamage++;
-        //                                Console.WriteLine($"Скелет становится сильнее! Урон: {skeleton.MinDamage}-{skeleton.MaxDamage}");
-        //                                Thread.Sleep(1000);
-        //                            }
-        //                            continue;
-        //                        }
-        //                    }
-
-        //                    myHero.TakeDamage(damage);
-
-        //                    if (enemies[0] == spider)
-        //                    {
-        //                        myHero.PoisonTurns = 5;
-        //                        Console.WriteLine($"{myHero.Name} отравлен!");
-        //                        Thread.Sleep(1000);
-        //                    }
-        //                    else if (enemies[0] == goblin)
-        //                    {
-        //                        if (random.Next(1, 101) <= 30)
-        //                        {
-        //                            myHero.InStunned = true;
-        //                            Console.WriteLine($"{enemies[0].Name} оглушил {myHero.Name}!");
-        //                            Thread.Sleep(1000);
-        //                        }
-        //                    }
-        //                    else if (enemies[0] == skeleton)
-        //                    {
-        //                        skeleton.MinDamage++;
-        //                        skeleton.MaxDamage++;
-        //                        Console.WriteLine($"Скелет становится сильнее! Урон: {skeleton.MinDamage}-{skeleton.MaxDamage}");
-        //                        Thread.Sleep(1000);
-        //                    }
-        //                    break;
-        //                }
-        //            }
-        //            else
-        //            {
-        //                Console.WriteLine("Не могу этого сделать!");
-        //            }
-        //        }
-        //        break;
-
-        //    }
-        //}
-
-        //while (myHero.isAlive() && enemies.Count > 0)
-        //{
-        //    Character enemy = enemies[random.Next(enemies.Count)];
-
-        //    Console.WriteLine($"\nНа тебя нападает {enemy.Name}");
-        //    Thread.Sleep(1000);
-
-
-        //    }
-        //}
-
-        //if (myHero.isAlive())
-        //{
-        //    Console.WriteLine("\n>Я победил всех врагов!");
-        //}
-        //Console.WriteLine("\nВведите урон:");
-        //int damage = int.Parse(Console.ReadLine());
-        //int damage = 0;
-        //string preDamage = Console.ReadLine();
-        //if (preDamage != "")
-        //{
-        //damage = int.Parse(preDamage);
-        //}
-
-        //myHero.TakeDamage(damage);
-        //}
     }
 }
