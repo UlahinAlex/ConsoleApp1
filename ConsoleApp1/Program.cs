@@ -18,6 +18,37 @@ public class Character
     public int BonusBlockChance = 0; //Дополнительный шанс поставить блок
     public int BonusDodgeChance = 0; //Дополнительный шанс увернутся
     public Weapon EquippedWeapon; //Экипированное оружие
+    public int Level = 1; //Счетчик уровней
+    public int Experience = 0; //Счетчик опыта
+    private static int[] levelThresholds = { 0, 10, 20, 30, 50, 80, 130, 210, 340, 550 }; // Пороги опыта по Фибоначчи * 10
+    public bool IsElite = false; //Усиленный враг
+
+
+    public void GainExperience(int amount)
+    {
+        Experience += amount;
+        Console.WriteLine($"{Name} получает {amount} опыта. Всего: {Experience}");
+        Thread.Sleep(1000);
+        CheckLevelUp();
+    }
+
+    private void CheckLevelUp()
+    {
+        if (Level >= levelThresholds.Length) return;  // уже максимальный уровень
+
+        if (Experience >= levelThresholds[Level])
+        {
+            Level++;
+            MaxHP += 20;
+            MinDamage = (int)(MinDamage * 1.1f);
+            MaxDamage = (int)(MaxDamage * 1.1f);
+            Console.WriteLine($"Уровень повышен! Теперь {Name} {Level} уровня.");
+            Console.WriteLine($"HP: {MaxHP} | Урон: {MinDamage}-{MaxDamage}");
+            Thread.Sleep(1000);
+
+            CheckLevelUp(); // Проверяем снова — вдруг опыта хватает на несколько уровней сразу
+        }
+    }
 
     //Метод проверки статусов
     public void ApplyEffects()
@@ -103,8 +134,9 @@ public class Character
     //Метод лечения
     public void Heal()
     {
-        CurrentHP = MaxHP;
-        Console.WriteLine($"{Name} восстановил здоровье до {MaxHP}!");
+        int missing = MaxHP - CurrentHP;
+        CurrentHP += missing / 2;
+        Console.WriteLine($"{Name} восстановил здоровье. HP: {CurrentHP}/{MaxHP}");
         Thread.Sleep(1000);
     }
 
@@ -157,6 +189,36 @@ public class Weapon
 //Основной класс выполнения циклов игшры
 class Program
 {
+    //Отдельно выбираем противника
+    static Character CreateRandomEnemy(Random random, int heroLevel)
+    {
+        // Определяем тип врага
+        int roll = random.Next(1, 4);
+        Character enemy;
+        int expReward;
+
+        if (roll == 1)
+            enemy = new Character("Гоблин", 30, 3, 8, 15, 10, 30);
+        else if (roll == 2)
+            enemy = new Character("Паук", 20, 1, 5, 5, 25, 20);
+        else
+            enemy = new Character("Скелет", 50, 1, 10, 20, 15, 50);
+
+        // Проверяем элитность
+        if (random.Next(1, 101) <= heroLevel * 10)
+        {
+            enemy.IsElite = true;
+            enemy.MaxHP *= 2;
+            enemy.CurrentHP = enemy.MaxHP;
+            enemy.MinDamage *= 2;
+            enemy.MaxDamage *= 2;
+            enemy.CritChance *= 2;
+            enemy.MissChance = Math.Max(enemy.MissChance / 2, 1); // элита реже промахивается
+        }
+
+        return enemy;
+    }
+
     //Отдельно вынесли процесс выбора оружия
     static Weapon ChooseWeapon(Weapon axe, Weapon swordAndShield, Weapon bow)
     {
@@ -186,12 +248,7 @@ class Program
         Weapon bow = new Weapon("Лук", 12, 20, 1.5f, 30, 0, 0, isBow: true);
 
         //Объявляем имеющиеся типы врагов
-        List<Character> enemies = new List<Character>
-        {
-            new Character("Гоблин", 30, 3, 8, 15, 10, 30), //Имя, текущее ХП, мин. урон, макс. урон, промах, крит, макс. ХП
-            new Character("Паук", 20, 1, 5, 5, 25, 20), //Имя, текущее ХП, мин. урон, макс. урон, промах, крит, макс. ХП
-            new Character("Скелет", 50, 1, 10, 20, 15, 50) //Имя, текущее ХП, мин. урон, макс. урон, промах, крит, макс. ХП
-        };
+        List<Character> enemies = new List<Character>();
         Character goblin = null;
         Character spider = null;
         Character skeleton = null;
@@ -228,25 +285,25 @@ class Program
 
                 while (true)
                 {
-                    Console.WriteLine("\nВведи команду (В путь):");
+                    Console.WriteLine("\nВведи команду (В путь / Выход):");
                     string cmd = Console.ReadLine().ToLower().Trim();
                     if (cmd == "в путь") break;
+                    else if (cmd == "выход")
+                    {
+                        Console.WriteLine("До свидания!");
+                        return;
+                    }
                     else Console.WriteLine("Не могу этого сделать!");
                 }
 
                 onBase = false;
 
                 // Создаём первого врага при выходе с базы
-                int firstRoll = random.Next(1, 4);
-                if (firstRoll == 1) enemies.Add(new Character("Гоблин", 30, 3, 8, 15, 10, 30));
-                else if (firstRoll == 2) enemies.Add(new Character("Паук", 20, 1, 5, 5, 25, 20));
-                else enemies.Add(new Character("Скелет", 50, 1, 10, 20, 15, 50));
+                enemies.Add(CreateRandomEnemy(random, myHero.Level));
+                Character newEnemy = enemies[enemies.Count - 1];
 
-                goblin = enemies.Find(e => e.Name == "Гоблин");
-                spider = enemies.Find(e => e.Name == "Паук");
-                skeleton = enemies.Find(e => e.Name == "Скелет");
-
-                Console.WriteLine($"Навстречу тебе выходит {enemies[0].Name}!");
+                string eliteTag = newEnemy.IsElite ? " [ЭЛИТА]" : ""; //Пердупреждаем об элите
+                Console.WriteLine($"Навстречу тебе выходит {newEnemy.Name}{eliteTag} [HP: {newEnemy.MaxHP}]!");
                 Thread.Sleep(1000);
 
                 continue; // возвращаемся в начало главного цикла
@@ -255,11 +312,16 @@ class Program
             // Бой
             if (enemies.Count > 0)
             {
+                //Локализуем противника
                 Character enemy = enemies[0];
+                Console.WriteLine($"[DEBUG] Сражаемся с: {enemy.Name}, HP: {enemy.CurrentHP}/{enemy.MaxHP}, Элита: {enemy.IsElite}");
+                //определяем если скелета
                 bool vsSkeleton = enemy == skeleton;
 
+                //Срабатывает эффект
                 myHero.ApplyEffects();
 
+                //Если тут герой погибает, то от яда.
                 if (!myHero.isAlive())
                 {
                     Console.WriteLine($"{myHero.Name} погиб от яда!");
@@ -267,13 +329,14 @@ class Program
                     break;
                 }
 
+                //Проверка на оглушение героя
                 if (myHero.InStunned)
                 {
                     Console.WriteLine($"{myHero.Name} оглушен и пропускает атаку!");
                     Thread.Sleep(1000);
                     myHero.InStunned = false;
                 }
-                else
+                else //Иначе продолжаем бой
                 {
                     string action = "";
                     while (true)
@@ -316,8 +379,21 @@ class Program
                 if (!enemy.isAlive())
                 {
                     Console.WriteLine($"\n> Я победил {enemy.Name}!");
+                    Console.WriteLine($"{myHero.Name} : {myHero.CurrentHP}/{myHero.MaxHP} здоровья.");
                     Thread.Sleep(1000);
+
                     enemies.Remove(enemy);
+
+                    // Опыт за победу
+                    int expReward = 0;
+                    if (enemy.Name == "Гоблин") expReward = 5;
+                    else if (enemy.Name == "Паук") expReward = 4;
+                    else if (enemy.Name == "Скелет") expReward = 8;
+
+                    if (enemy.IsElite) expReward *= 2;
+                    myHero.GainExperience(expReward);
+
+                    
 
                     // Выбор после победы
                     while (true)
@@ -333,16 +409,21 @@ class Program
                         }
                         else if (cmd == "вперед")
                         {
-                            int roll = random.Next(1, 4);
-                            if (roll == 1) enemies.Add(new Character("Гоблин", 30, 3, 8, 15, 10, 30));
-                            else if (roll == 2) enemies.Add(new Character("Паук", 20, 1, 5, 5, 25, 20));
-                            else enemies.Add(new Character("Скелет", 50, 1, 10, 20, 15, 50));
+                            //Встречаем следующего врага
+                            enemies.Add(CreateRandomEnemy(random, myHero.Level));
+                            Character newEnemy = enemies[enemies.Count - 1];
 
-                            goblin = enemies.Find(e => e.Name == "Гоблин");
-                            spider = enemies.Find(e => e.Name == "Паук");
-                            skeleton = enemies.Find(e => e.Name == "Скелет");
+                            //int roll = random.Next(1, 4);
+                            //if (roll == 1) enemies.Add(new Character("Гоблин", 30, 3, 8, 15, 10, 30));
+                            //else if (roll == 2) enemies.Add(new Character("Паук", 20, 1, 5, 5, 25, 20));
+                            //else enemies.Add(new Character("Скелет", 50, 1, 10, 20, 15, 50));
 
-                            Console.WriteLine($"Навстречу тебе выходит {enemies[0].Name}!");
+                            //goblin = enemies.Find(e => e.Name == "Гоблин");
+                            //spider = enemies.Find(e => e.Name == "Паук");
+                            //skeleton = enemies.Find(e => e.Name == "Скелет");
+
+                            string eliteTag = newEnemy.IsElite ? " [ЭЛИТА]" : ""; //Пердупреждаем об элите
+                            Console.WriteLine($"Навстречу тебе выходит {newEnemy.Name}{eliteTag} [HP: {newEnemy.MaxHP}]!");
                             Thread.Sleep(1000);
                             break;
                         }
