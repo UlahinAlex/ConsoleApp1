@@ -10,21 +10,21 @@ public class EnemyFactory
         this.random = random;
     }
 
-    public Character CreateRandomEnemy(int heroLevel)
+    public Enemy CreateRandomEnemy(int heroLevel)
     {
         int roll = random.Next(1, 4);
-        Character enemy;
+        Enemy enemy;
 
         switch (roll)
         {
             case 1:
-                enemy = new Character("Гоблин", GameConstants.GOBLIN_HP, GameConstants.GOBLIN_MIN_DAMAGE, GameConstants.GOBLIN_MAX_DAMAGE, GameConstants.GOBLIN_MISS_CHANCE, GameConstants.GOBLIN_CRIT_CHANCE, GameConstants.GOBLIN_EXP, random);
+                enemy = new Enemy("Гоблин", GameConstants.GOBLIN_HP, GameConstants.GOBLIN_MIN_DAMAGE, GameConstants.GOBLIN_MAX_DAMAGE, GameConstants.GOBLIN_MISS_CHANCE, GameConstants.GOBLIN_CRIT_CHANCE, GameConstants.GOBLIN_EXP, random);
                 break;
             case 2:
-                enemy = new Character("Паук", GameConstants.SPIDER_HP, GameConstants.SPIDER_MIN_DAMAGE, GameConstants.SPIDER_MAX_DAMAGE, GameConstants.SPIDER_MISS_CHANCE, GameConstants.SPIDER_CRIT_CHANCE, GameConstants.SPIDER_EXP, random);
+                enemy = new Enemy("Паук", GameConstants.SPIDER_HP, GameConstants.SPIDER_MIN_DAMAGE, GameConstants.SPIDER_MAX_DAMAGE, GameConstants.SPIDER_MISS_CHANCE, GameConstants.SPIDER_CRIT_CHANCE, GameConstants.SPIDER_EXP, random);
                 break;
             default:
-                enemy = new Character("Скелет", GameConstants.SKELETON_HP, GameConstants.SKELETON_MIN_DAMAGE, GameConstants.SKELETON_MAX_DAMAGE, GameConstants.SKELETON_MISS_CHANCE, GameConstants.SKELETON_CRIT_CHANCE, GameConstants.SKELETON_EXP, random);
+                enemy = new Enemy("Скелет", GameConstants.SKELETON_HP, GameConstants.SKELETON_MIN_DAMAGE, GameConstants.SKELETON_MAX_DAMAGE, GameConstants.SKELETON_MISS_CHANCE, GameConstants.SKELETON_CRIT_CHANCE, GameConstants.SKELETON_EXP, random);
                 break;
         }
 
@@ -47,7 +47,7 @@ public class EnemyFactory
         return enemy;
     }
 
-    private void SubscribeEnemyEvents(Character enemy)
+    private void SubscribeEnemyEvents(Enemy enemy)
     {
         enemy.OnDamageTaken += (damage) => Print($"{enemy.Name} получил {damage} урона. Осталось здоровья: {enemy.CurrentHP}");
         enemy.OnDeath += () => Print($"{enemy.Name} погиб!");

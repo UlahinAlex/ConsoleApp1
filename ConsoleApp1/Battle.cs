@@ -5,12 +5,14 @@ public class Battle
 {
     private Random random;
 
+
+
     public Battle(Random random)
     {
         this.random = random;
     }
 
-    public void HandleBattle(Character hero, Character enemy)
+    public void HandleBattle(Player hero, Character enemy)
     {
         bool vsSkeleton = enemy.Name == "Скелет";
 
@@ -38,7 +40,7 @@ public class Battle
         ExecuteEnemyAction(hero, enemy);
     }
 
-    public bool HandleVictory(Character hero, Character enemy, List<Character> enemies)
+    public bool HandleVictory(Player hero, Enemy enemy, List<Character> enemies)
     {
         Console.WriteLine($"\n> Я победил {enemy.Name}!");
         Print($"{hero.Name} : {hero.CurrentHP}/{hero.MaxHP} здоровья.");
@@ -88,7 +90,7 @@ public class Battle
         }
     }
 
-    private void ExecutePlayerAction(string action, Character hero, Character enemy, bool vsSkeleton)
+    private void ExecutePlayerAction(string action, Player hero, Character enemy, bool vsSkeleton)
     {
         switch (action)
         {
@@ -117,7 +119,7 @@ public class Battle
         }
     }
 
-    private void ExecuteEnemyAction(Character hero, Character enemy)
+    private void ExecuteEnemyAction(Player hero, Character enemy)
     {
         int damage = enemy.GetDamage();
 

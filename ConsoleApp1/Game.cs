@@ -4,7 +4,7 @@ using System.Threading;
 
 public class Game
 {
-    private Character hero;
+    private Player hero;
     private List<Character> enemies;
     private Battle battle;
     private Base gameBase;
@@ -28,7 +28,7 @@ public class Game
         Console.WriteLine("Как тебя зовут?");
         string name = Console.ReadLine();
 
-        hero = new Character(name, GameConstants.HERO_START_HP, GameConstants.HERO_START_MIN_DAMAGE, GameConstants.HERO_START_MAX_DAMAGE, GameConstants.HERO_MISS_CHANCE, GameConstants.HERO_CRIT_CHANCE, GameConstants.HERO_START_HP, random);
+        hero = new Player(name, GameConstants.HERO_START_HP, GameConstants.HERO_START_MIN_DAMAGE, GameConstants.HERO_START_MAX_DAMAGE, GameConstants.HERO_MISS_CHANCE, GameConstants.HERO_CRIT_CHANCE, GameConstants.HERO_START_HP, random);
         Console.WriteLine($">Меня зовут {hero.Name}, у меня {hero.CurrentHP} здоровья.");
 
         SubscribeHeroEvents();
@@ -45,7 +45,7 @@ public class Game
 
             if (enemies.Count > 0)
             {
-                Character enemy = enemies[0];
+                Enemy enemy = (Enemy)enemies[0];
                 battle.HandleBattle(hero, enemy);
 
                 if (!enemy.isAlive())

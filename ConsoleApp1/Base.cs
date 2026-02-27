@@ -16,7 +16,7 @@ public class Base
         bow = new Weapon("Лук", GameConstants.BOW_MIN_DAMAGE, GameConstants.BOW_MAX_DAMAGE, GameConstants.BOW_CRIT_MULTIPLIER, GameConstants.BOW_DODGE_MODIFIER, GameConstants.BOW_DOUBLE_ATTACK_CHANCE, GameConstants.BOW_BLOCK_CHANCE, isBow: true);
     }
 
-    public void Enter(Character hero)
+    public void Enter(Player hero)
     {
         Console.WriteLine("\n=== БАЗА ===");
         hero.HealBase();
